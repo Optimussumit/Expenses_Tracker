@@ -1,28 +1,19 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 import matplotlib.pyplot as plt
 from io import BytesIO
 from datetime import datetime
+from supabase import create_client
 
 st.set_page_config(page_title="Expense Tracker", layout="wide")
-st.title("💰 Smart Expense Tracker")
+st.title("💰 Cloud Expense Tracker")
 
-# ---------------- DATABASE ---------------- #
+# ---------------- SUPABASE CONNECTION ---------------- #
 
-conn = sqlite3.connect("expenses.db", check_same_thread=False)
-cursor = conn.cursor()
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS expenses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    amount REAL,
-    category TEXT,
-    type TEXT,
-    date TEXT
-)
-""")
-conn.commit()
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ---------------- ADD TRANSACTION ---------------- #
 
@@ -36,20 +27,24 @@ type_ = st.sidebar.selectbox("Type",
 date = st.sidebar.date_input("Date")
 
 if st.sidebar.button("Add Transaction"):
-    cursor.execute(
-        "INSERT INTO expenses (amount, category, type, date) VALUES (?, ?, ?, ?)",
-        (amount, category, type_, str(date))
-    )
-    conn.commit()
-    st.sidebar.success("Transaction Added!")
+    supabase.table("expenses").insert({
+        "amount": amount,
+        "category": category,
+        "type": type_,
+        "date": str(date)
+    }).execute()
+
+    st.sidebar.success("Transaction Saved to Cloud!")
 
 # ---------------- FETCH DATA ---------------- #
 
-df = pd.read_sql_query("SELECT * FROM expenses", conn)
+response = supabase.table("expenses").select("*").execute()
 
-if df.empty:
+if not response.data:
     st.warning("No transactions yet.")
     st.stop()
+
+df = pd.DataFrame(response.data)
 
 df["date"] = pd.to_datetime(df["date"])
 df["year_month"] = df["date"].dt.to_period("M").astype(str)
@@ -65,52 +60,37 @@ filtered_df = df[df["year_month"] == selected_month]
 
 # ---------------- EXPENSE LIMIT ---------------- #
 
-st.subheader("🎯 Set Monthly Expense Limit")
+st.subheader("🎯 Monthly Expense Limit")
 
-expense_limit = st.number_input("Enter Monthly Expense Limit", min_value=0.0)
+expense_limit = st.number_input("Set Monthly Expense Limit", min_value=0.0)
 
 expense_total = filtered_df[filtered_df["type"] == "expense"]["amount"].sum()
 investment_total = filtered_df[filtered_df["type"] == "investment"]["amount"].sum()
 saving_total = filtered_df[filtered_df["type"] == "saving"]["amount"].sum()
 
-# ---------------- METRICS ---------------- #
-
 col1, col2, col3 = st.columns(3)
-
 col1.metric("🔴 Total Expense", f"₹{expense_total:,.2f}")
 col2.metric("🔵 Total Investment", f"₹{investment_total:,.2f}")
 col3.metric("🟢 Total Saving", f"₹{saving_total:,.2f}")
 
-# ---------------- EXPENSE ALERT ---------------- #
-
 if expense_limit > 0:
     if expense_total > expense_limit:
-        st.error("🚨 ALERT: You are running over your monthly expense limit!")
+        st.error("🚨 ALERT: You are running over your monthly budget!")
     else:
-        remaining = expense_limit - expense_total
-        st.success(f"✅ You are within budget. Remaining: ₹{remaining:,.2f}")
+        st.success(f"✅ Within Budget. Remaining ₹{expense_limit - expense_total:,.2f}")
 
-# ---------------- WHO IS HIGHEST ---------------- #
+# ---------------- FINANCIAL BEHAVIOR ---------------- #
 
 st.subheader("📊 Monthly Financial Behavior")
 
 max_value = max(expense_total, investment_total, saving_total)
 
 if max_value == expense_total:
-    st.markdown(
-        "<h3 style='color:red;'>🔴 You spent the most this month.</h3>",
-        unsafe_allow_html=True
-    )
+    st.markdown("<h3 style='color:red;'>🔴 Spending is highest this month</h3>", unsafe_allow_html=True)
 elif max_value == investment_total:
-    st.markdown(
-        "<h3 style='color:blue;'>🔵 You invested the most this month.</h3>",
-        unsafe_allow_html=True
-    )
+    st.markdown("<h3 style='color:blue;'>🔵 Investment is highest this month</h3>", unsafe_allow_html=True)
 elif max_value == saving_total:
-    st.markdown(
-        "<h3 style='color:green;'>🟢 You saved the most this month.</h3>",
-        unsafe_allow_html=True
-    )
+    st.markdown("<h3 style='color:green;'>🟢 Saving is highest this month</h3>", unsafe_allow_html=True)
 
 # ---------------- LINE CHART ---------------- #
 
