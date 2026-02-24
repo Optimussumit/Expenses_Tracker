@@ -1,14 +1,28 @@
 import streamlit as st
-import requests
 import pandas as pd
+import sqlite3
 import matplotlib.pyplot as plt
 from io import BytesIO
 from datetime import datetime
 
-API_URL = "http://127.0.0.1:8000"
-
 st.set_page_config(page_title="Expense Tracker", layout="wide")
 st.title("💰 Expense Tracker Dashboard")
+
+# ---------------- DATABASE ---------------- #
+
+conn = sqlite3.connect("expenses.db", check_same_thread=False)
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    amount REAL,
+    category TEXT,
+    type TEXT,
+    date TEXT
+)
+""")
+conn.commit()
 
 # ---------------- ADD TRANSACTION ---------------- #
 
@@ -22,29 +36,21 @@ type_ = st.sidebar.selectbox("Type",
 date = st.sidebar.date_input("Date")
 
 if st.sidebar.button("Add"):
-    data = {
-        "amount": amount,
-        "category": category,
-        "type": type_,
-        "date": str(date)
-    }
-    requests.post(f"{API_URL}/expenses", json=data)
+    cursor.execute(
+        "INSERT INTO expenses (amount, category, type, date) VALUES (?, ?, ?, ?)",
+        (amount, category, type_, str(date))
+    )
+    conn.commit()
     st.sidebar.success("Transaction Added!")
 
 # ---------------- FETCH DATA ---------------- #
 
-@st.cache_data
-def fetch_data():
-    response = requests.get(f"{API_URL}/expenses")
-    return response.json()
+df = pd.read_sql_query("SELECT * FROM expenses", conn)
 
-data = fetch_data()
-
-if not data:
-    st.warning("No transactions available.")
+if df.empty:
+    st.warning("No transactions yet.")
     st.stop()
 
-df = pd.DataFrame(data)
 df["date"] = pd.to_datetime(df["date"])
 df["year_month"] = df["date"].dt.to_period("M").astype(str)
 
@@ -135,8 +141,3 @@ st.download_button(
     file_name=f"expense_report_{selected_month}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-
-# ---------------- TABLE ---------------- #
-
-st.subheader("📋 Transaction History")
-st.dataframe(filtered_df.sort_values("date", ascending=False))
