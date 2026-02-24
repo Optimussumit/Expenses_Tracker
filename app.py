@@ -6,7 +6,7 @@ from io import BytesIO
 from datetime import datetime
 
 st.set_page_config(page_title="Expense Tracker", layout="wide")
-st.title("💰 Expense Tracker Dashboard")
+st.title("💰 Smart Expense Tracker")
 
 # ---------------- DATABASE ---------------- #
 
@@ -26,7 +26,7 @@ conn.commit()
 
 # ---------------- ADD TRANSACTION ---------------- #
 
-st.sidebar.header("Add Transaction")
+st.sidebar.header("➕ Add Transaction")
 
 amount = st.sidebar.number_input("Amount", min_value=0.0)
 category = st.sidebar.selectbox("Category",
@@ -35,7 +35,7 @@ type_ = st.sidebar.selectbox("Type",
     ["expense", "investment", "saving"])
 date = st.sidebar.date_input("Date")
 
-if st.sidebar.button("Add"):
+if st.sidebar.button("Add Transaction"):
     cursor.execute(
         "INSERT INTO expenses (amount, category, type, date) VALUES (?, ?, ?, ?)",
         (amount, category, type_, str(date))
@@ -56,30 +56,61 @@ df["year_month"] = df["date"].dt.to_period("M").astype(str)
 
 # ---------------- MONTH FILTER ---------------- #
 
-st.header("📅 Monthly Filter")
+st.header("📅 Monthly Analysis")
 
 months = sorted(df["year_month"].unique(), reverse=True)
 selected_month = st.selectbox("Select Month", months)
 
 filtered_df = df[df["year_month"] == selected_month]
 
-# ---------------- SUMMARY ---------------- #
+# ---------------- EXPENSE LIMIT ---------------- #
 
-st.header("📊 Monthly Summary")
+st.subheader("🎯 Set Monthly Expense Limit")
 
-budget = st.number_input("Set Monthly Budget", min_value=0.0)
+expense_limit = st.number_input("Enter Monthly Expense Limit", min_value=0.0)
 
 expense_total = filtered_df[filtered_df["type"] == "expense"]["amount"].sum()
 investment_total = filtered_df[filtered_df["type"] == "investment"]["amount"].sum()
 saving_total = filtered_df[filtered_df["type"] == "saving"]["amount"].sum()
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Expense", f"₹{expense_total:,.2f}")
-col2.metric("Total Investment", f"₹{investment_total:,.2f}")
-col3.metric("Total Saving", f"₹{saving_total:,.2f}")
+# ---------------- METRICS ---------------- #
 
-if budget > 0 and expense_total > budget:
-    st.error("⚠ You exceeded your monthly budget!")
+col1, col2, col3 = st.columns(3)
+
+col1.metric("🔴 Total Expense", f"₹{expense_total:,.2f}")
+col2.metric("🔵 Total Investment", f"₹{investment_total:,.2f}")
+col3.metric("🟢 Total Saving", f"₹{saving_total:,.2f}")
+
+# ---------------- EXPENSE ALERT ---------------- #
+
+if expense_limit > 0:
+    if expense_total > expense_limit:
+        st.error("🚨 ALERT: You are running over your monthly expense limit!")
+    else:
+        remaining = expense_limit - expense_total
+        st.success(f"✅ You are within budget. Remaining: ₹{remaining:,.2f}")
+
+# ---------------- WHO IS HIGHEST ---------------- #
+
+st.subheader("📊 Monthly Financial Behavior")
+
+max_value = max(expense_total, investment_total, saving_total)
+
+if max_value == expense_total:
+    st.markdown(
+        "<h3 style='color:red;'>🔴 You spent the most this month.</h3>",
+        unsafe_allow_html=True
+    )
+elif max_value == investment_total:
+    st.markdown(
+        "<h3 style='color:blue;'>🔵 You invested the most this month.</h3>",
+        unsafe_allow_html=True
+    )
+elif max_value == saving_total:
+    st.markdown(
+        "<h3 style='color:green;'>🟢 You saved the most this month.</h3>",
+        unsafe_allow_html=True
+    )
 
 # ---------------- LINE CHART ---------------- #
 
